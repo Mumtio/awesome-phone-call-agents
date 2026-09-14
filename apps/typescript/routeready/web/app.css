@@ -96,6 +96,36 @@ button {
   height: 18px;
 }
 
+.icon-btn.back {
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 10px 30px rgb(16 20 25 / 0.12);
+}
+
+/* ---------- ways back home ---------- */
+.hero-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.home-link {
+  flex: none;
+  background: #fff;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 9px 14px;
+  font-size: 14px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.embedded .icon-btn.back,
+.embedded .home-link {
+  display: none;
+}
+
 
 .toast {
   position: absolute;
@@ -963,12 +993,16 @@ a.ghost {
 /* ---------- motion ---------- */
 button,
 a.ghost,
+a.icon-btn,
+.home-link,
 .cta {
   transition: transform 0.16s ease, background 0.2s ease, opacity 0.2s ease;
 }
 
 button:active,
-a.ghost:active {
+a.ghost:active,
+a.icon-btn:active,
+.home-link:active {
   transform: scale(0.97);
 }
 

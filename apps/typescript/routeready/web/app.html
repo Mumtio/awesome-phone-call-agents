@@ -17,6 +17,9 @@
   <body>
     <script src="/splash.js"></script>
     <header class="topbar">
+      <a class="icon-btn back" href="/" target="_top" title="Home" aria-label="Back to home">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7" /></svg>
+      </a>
       <div class="story" id="story">
         <strong id="story-title">Loading…</strong>
         <span id="story-detail"></span>
@@ -65,7 +68,10 @@
 
     <div class="start" id="start" hidden>
       <div class="hero">
-        <div class="mark">ROUTE<br />READY</div>
+        <div class="hero-top">
+          <div class="mark">ROUTE<br />READY</div>
+          <a class="home-link" href="/" target="_top">← Home</a>
+        </div>
         <div class="scoot">🛵</div>
       </div>
       <div class="pitch">

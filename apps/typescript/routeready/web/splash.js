@@ -3,7 +3,11 @@
 // briefly for people who prefer reduced motion. A click or key skips it.
 // Loaded as a classic script at the top of <body>, so it covers the page before first paint.
 (function () {
-  if (window.top !== window.self) return;
+  if (window.top !== window.self) {
+    // Inside the showcase phones: hide the ways back home, which would only reload the page inside the phone.
+    document.documentElement.classList.add("embedded");
+    return;
+  }
   var KEY = "routeready-splash";
   try {
     if (sessionStorage.getItem(KEY)) return;
