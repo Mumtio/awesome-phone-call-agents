@@ -36,7 +36,8 @@ export class TomTomTraffic implements TrafficProvider {
   constructor(
     private readonly apiKey: string,
     private readonly fetchImpl: FetchLike = fetch as unknown as FetchLike,
-    private readonly timeoutMs = 8000,
+    // Usually about a second, but a first request can take close to ten.
+    private readonly timeoutMs = 20_000,
   ) {}
 
   async matrix(origins: GeoPoint[], destinations: GeoPoint[]): Promise<TrafficMatrix> {
