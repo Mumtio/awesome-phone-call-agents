@@ -63,9 +63,7 @@ function render(snap) {
   $("start").hidden = snap.started;
   $("start-sub").textContent = `${day.stops.length} stops in ${day.city} · shift starts ${day.shiftStart}`;
   $("start-live").hidden = !snap.liveAvailable;
-  $("start-note").textContent = snap.liveAvailable
-    ? "Live calls are set up on this server."
-    : "This day runs with scripted customers. For real CALL-E calls, plan your own route.";
+  $("start-note").textContent = snap.liveAvailable ? "Live calls are set up on this server." : "";
 
   rider.setLatLng([snap.rider.lat, snap.rider.lng]);
   if (snap.routeVersion > routeVersion) {

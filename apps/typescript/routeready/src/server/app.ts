@@ -14,6 +14,7 @@ import { loadDay } from "../core/day.js";
 import { CallLedger, REPEAT_APPROVAL } from "../core/ledger.js";
 import { maskPhone } from "../core/phone.js";
 import { maskPhonesInText } from "../core/redact.js";
+import { TomTomTraffic } from "../core/traffic.js";
 import { FieldRegistry } from "../field/registry.js";
 import { FIELD_CONSENT, MAX_FIELD_STOPS, parseFieldStart, point } from "../field/setup.js";
 import { isLoopbackHost, loadLiveConfig } from "./config.js";
@@ -56,7 +57,10 @@ const controller = new RunController(loaded, live.config, ledger);
 /** Optional override for tests against a local fake of the CALL-E API. Real keys only go to approved HTTPS origins. */
 const calleBaseUrl = process.env.CALLE_BASE_URL?.trim() || undefined;
 const calleClient = (apiKey: string) => new CalleClient(calleClientOptions(apiKey, calleBaseUrl));
-const routes = new FieldRegistry((apiKey) => new LivePort(calleClient(apiKey)), ledger);
+/** Live traffic for visitor routes when TOMTOM_API_KEY is set; otherwise arrival times are distance estimates. */
+const tomtomKey = process.env.TOMTOM_API_KEY?.trim();
+const traffic = tomtomKey ? new TomTomTraffic(tomtomKey) : null;
+const routes = new FieldRegistry((apiKey) => new LivePort(calleClient(apiKey)), ledger, undefined, traffic);
 routes.startLoop();
 
 const server = createServer((request, response) => {
@@ -127,7 +131,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 /** Your own route: a visitor's CALL-E key, their stops, and their rider position. */
 async function handleRoute(request: IncomingMessage, response: ServerResponse, path: string): Promise<void> {
   if (request.method === "GET" && path === "/api/route/config") {
-    sendJson(response, 200, { consent: FIELD_CONSENT, maxStops: MAX_FIELD_STOPS, repeatApproval: REPEAT_APPROVAL });
+    sendJson(response, 200, { consent: FIELD_CONSENT, maxStops: MAX_FIELD_STOPS, repeatApproval: REPEAT_APPROVAL, traffic: traffic?.name ?? null });
     return;
   }
   if (request.method === "GET" && path === "/api/route/stream") {
@@ -301,6 +305,7 @@ server.listen(port, host, () => {
   console.log(`  Showcase (two phones): ${base}/`);
   console.log(`  Rider app:             ${base}/app`);
   console.log(`  Your route, real calls: ${base}/route (bring your own CALL-E key)`);
+  console.log(`  Arrival times on /route: ${traffic ? `live traffic from ${traffic.name}` : "distance estimates (set TOMTOM_API_KEY for live traffic)"}`);
   if (live.config) {
     const targets = [...live.config.targets].map(([stopId, target]) => `${stopId} -> ${maskPhone(target.phone)} (${target.region})`);
     console.log(`  Live calls: ON for ${targets.join(", ")}; other stops stay scripted`);

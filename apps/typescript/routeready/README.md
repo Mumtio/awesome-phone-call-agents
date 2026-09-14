@@ -35,7 +35,7 @@ Hosted: https://awesome-phone-call-agents-xloz.onrender.com/route (free instance
 2. **Pin 1 to 5 stops on the map.** Each stop has a customer name, a phone number with its country, an optional address and cash to collect. Place the rider 🛵 where the route starts.
 3. **Choose the call-ahead time** (3 to 20 minutes), the rider's average speed and whether each call says it is a test with no real parcel.
 4. **Choose the rider's location source.** *Drag on the map* moves the rider by dragging or tapping, so the route can be tested from a desk. *My phone's GPS* follows the phone's position while the page is open.
-5. **Ride.** Arrival times come from road-adjusted distance at the chosen speed. When the next uncalled customer is within the call-ahead time, `client.calls.create` places the call with the same task, result schema and idempotency key pattern as the demo day, and the transcript streams into the app. The answer goes through the same evidence gate, and a verified answer re-orders the remaining stops with the same search. Press **Delivered** or **Nobody home** at each door.
+5. **Ride.** Arrival times use live traffic from TomTom when the server has `TOMTOM_API_KEY` set: the rider-to-stop times refresh every minute or after the rider moves 150 m, and the stop-to-stop times every 10 minutes. Without a key, or if TomTom fails, they fall back to road-adjusted distance at the chosen speed, and the rider app says which it is using. When the next uncalled customer is within the call-ahead time, `client.calls.create` places the call with the same task, result schema and idempotency key pattern as the demo day, and the transcript streams into the app. The answer goes through the same evidence gate, and a verified answer re-orders the remaining stops with the same search. Press **Delivered** or **Nobody home** at each door.
 6. **End the route** with ✕. No new calls start and the key is discarded. A route nobody has open ends after 20 minutes, and every route ends after 3 hours.
 
 Each visitor's route is separate. The browser holds a random session id for it; CALL-E only ever sees a separate public run id in the metadata and idempotency key. On this screen the re-ordering also weighs how long each customer waits for their parcel, so a customer who asked for half an hour never sends the rider past a ready customer next door.
@@ -127,7 +127,8 @@ CALL-E has no cancel endpoint. **Stop** ends the day loop so no further calls ar
 ## Limitations
 
 - On the demo day the route, the rider's movement and the scripted customers are simulated; only live targets are real calls.
-- On your own route, arrival times are estimates from straight-line distance times 1.35 at a fixed speed, not live traffic, and routes live in server memory, so a server restart ends them.
+- On your own route, live traffic needs a TomTom API key (free tier: 2,500 requests a day). TomTom times are for a car, not a motorbike. Without a key, arrival times are estimates from straight-line distance times 1.35 at a fixed speed. Routes live in server memory, so a server restart ends them.
+- The demo day keeps its saved road times, because its clock is simulated and live traffic would not match it.
 - Travel times come from the public OSRM demo server with free-flow speeds, scaled by a fixed traffic factor of 2. They were downloaded once into `fixtures/` with `npm run build:travel`.
 - One rider and at most nine stops searched exhaustively; later stops keep their order.
 - A customer who does not answer is not called again that day; the rider tries the door as usual.

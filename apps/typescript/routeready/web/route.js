@@ -64,6 +64,9 @@ function openSetup(message) {
   $("banner").hidden = !message;
   $("banner").textContent = message ?? "";
   $("consent-text").textContent = config.consent;
+  if (config.traffic) {
+    $("traffic-help").textContent = `Arrival times use live traffic from ${config.traffic}; the speed is used only if traffic data is unavailable.`;
+  }
   $("max-stops").textContent = config.maxStops;
   if (!setupMap) initSetupMap();
   setTimeout(() => setupMap.invalidateSize(), 50);
@@ -369,7 +372,8 @@ function render(snap) {
     detail = next.cash ? `Collect ${next.cash}` : "Prepaid order";
   } else if (next) {
     title = `Riding to ${next.customer}`;
-    detail = `${distance(next.metersAway)} away · ${minutes(next.minutesAway)} · arrives ${next.eta}`;
+    const inTraffic = snap.traffic.live ? " in traffic" : "";
+    detail = `${distance(next.metersAway)} away · ${minutes(next.minutesAway)}${inTraffic} · arrives ${next.eta}`;
   }
   if (call) detail = `Calling ${call.customer} now`;
   $("story-title").textContent = title;
@@ -389,7 +393,7 @@ function render(snap) {
     }
   }
 
-  draw("sheet", [snap.order, snap.door, snap.stops, call, snap.finished, snap.callsHalted], () => ($("route-sheet").innerHTML = routeSheet(snap, next, call)));
+  draw("sheet", [snap.order, snap.door, snap.stops, call, snap.finished, snap.callsHalted, snap.traffic.live, snap.traffic.nextDelayMinutes], () => ($("route-sheet").innerHTML = routeSheet(snap, next, call)));
   draw("stops", [snap.order, snap.stops], () => ($("screen-stops").innerHTML = stopsScreen(snap)));
   draw("calls", snap.calls, () => ($("screen-calls").innerHTML = callsScreen(snap)));
   draw("log", [snap.metrics, snap.log], () => ($("screen-log").innerHTML = logScreen(snap)));
@@ -437,6 +441,7 @@ function routeSheet(snap, next, call) {
   }
   return `<div class="handle"></div>
     <p class="sheet-label"><span>${atDoor ? "At the door" : "Next stop"} · ${progress}</span><span>${atDoor ? escapeHtml(snap.clock) : `ETA ${escapeHtml(next.eta ?? "")}`}</span></p>
+    ${trafficLine(snap)}
     <div class="next">
       <div class="next-head">
         <div class="next-who">
@@ -454,6 +459,17 @@ function routeSheet(snap, next, call) {
       </div>
     </div>
     ${callingLine(call)}${tip}`;
+}
+
+/** Where the arrival times come from: live traffic, or an estimate. */
+function trafficLine(snap) {
+  const { traffic } = snap;
+  if (traffic.live) {
+    const delay = traffic.nextDelayMinutes > 0 ? ` · +${traffic.nextDelayMinutes} min traffic delay` : "";
+    return `<p class="sheet-label"><span class="traffic live">Live traffic · ${escapeHtml(traffic.provider)}${delay}</span></p>`;
+  }
+  const why = traffic.provider ? "live traffic unavailable" : "no live traffic on this server";
+  return `<p class="sheet-label"><span class="traffic">Estimated arrival times · ${why}</span></p>`;
 }
 
 function callingLine(call) {

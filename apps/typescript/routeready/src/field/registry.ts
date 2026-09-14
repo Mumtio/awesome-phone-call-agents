@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { CallPort } from "../calle/ports.js";
 import { haversineMeters } from "../core/geo.js";
 import type { CallLedger } from "../core/ledger.js";
+import type { TrafficProvider } from "../core/traffic.js";
 import { maskPhone } from "../core/phone.js";
 import { maskPhonesDeep } from "../core/redact.js";
 import { FieldSession, type FieldSetup } from "./session.js";
@@ -28,6 +29,7 @@ export function fieldSnapshot(session: FieldSession) {
     routeVersion: session.routeVersion,
     door,
     lineBusy: session.lineBusy,
+    traffic: session.trafficStatus(),
     callsHalted: session.callsHalted,
     stops: session.setup.stops.map((stop) => {
       const state = session.states.get(stop.id);
@@ -92,6 +94,7 @@ export class FieldRegistry {
     private readonly makePort: (apiKey: string) => CallPort,
     private readonly ledger: CallLedger,
     private readonly limits: RegistryLimits = DEFAULT_LIMITS,
+    private readonly traffic: TrafficProvider | null = null,
   ) {}
 
   get size(): number {
@@ -112,7 +115,7 @@ export class FieldRegistry {
         approved.delete(phone);
         this.ledger.record(phone, offset);
       },
-    });
+    }, this.traffic);
     this.entries.set(sessionId, { session, listeners: new Set(), lastSeen: Date.now() });
     return { sessionId, session };
   }

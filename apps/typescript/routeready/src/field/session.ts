@@ -1,9 +1,11 @@
 import { pickNextCall } from "../core/callPicker.js";
 import { gateCall, type GateResult } from "../core/evidence.js";
-import { estimatedTravel, haversineMeters } from "../core/geo.js";
+import { estimatedTravel, haversineMeters, ROAD_FACTOR } from "../core/geo.js";
 import { maskPhone } from "../core/phone.js";
 import { planFromAnswer, type StopPlan } from "../core/readiness.js";
 import { resequence, type RouteStopInput } from "../core/resequence.js";
+import type { TrafficMatrix, TrafficProvider } from "../core/traffic.js";
+import { TravelTimes } from "../core/travel.js";
 import type { ReadinessAnswer, Stop } from "../core/types.js";
 import { creationRefused, MAX_LIVE_CALL_MINUTES, type CallPort, type CallRequest, type LiveLine } from "../calle/ports.js";
 import { maskPhonesInText } from "../core/redact.js";
@@ -40,6 +42,13 @@ export const MIN_CALL_LEAD_MINUTES = 0.5;
 export const AT_DOOR_METERS = 60;
 /** How long each customer waits for their parcel counts a little, so ready customers are served first. */
 export const FIELD_DELIVERY_WEIGHT = 0.1;
+/** Live traffic between stops changes slowly; refresh it this often. */
+export const TRAFFIC_STOPS_REFRESH_MS = 10 * 60_000;
+/** Live traffic from the rider to every stop is refreshed this often, or sooner when the rider moves. */
+export const TRAFFIC_RIDER_REFRESH_MS = 60_000;
+export const TRAFFIC_RIDER_MOVE_METERS = 150;
+/** After a failed traffic request, wait this long before trying again. */
+export const TRAFFIC_RETRY_MS = 2 * 60_000;
 const CALL_HISTORY = 12;
 const LOG_LIMIT = 80;
 
@@ -95,11 +104,20 @@ export class FieldSession {
   private inFlight: InFlight | null = null;
   private ticking = false;
   private toastCount = 0;
+  private readonly trafficState: {
+    stops: TrafficMatrix | null;
+    stopsAt: number;
+    rider: { seconds: number[]; meters: number[]; delaySeconds: number[]; from: { lat: number; lng: number }; at: number } | null;
+    pending: boolean;
+    failedAt: number;
+    lastError: string | null;
+  } = { stops: null, stopsAt: 0, rider: null, pending: false, failedAt: 0, lastError: null };
 
   /**
    * @param runId public id sent to CALL-E in metadata and idempotency keys; never the session secret
    * @param clock milliseconds since the epoch; tests pass a fake clock
    * @param destinations one call per number per day across routes on this server
+   * @param traffic live-traffic driving times; without it, times are estimated from distance
    */
   constructor(
     readonly runId: string,
@@ -107,6 +125,7 @@ export class FieldSession {
     private readonly port: CallPort,
     private readonly clock: () => number = Date.now,
     private readonly destinations?: DestinationGuard,
+    private readonly traffic: TrafficProvider | null = null,
   ) {
     this.startedAt = clock();
     this.rider = { ...setup.rider, accuracy: null, updatedAt: this.startedAt };
@@ -145,12 +164,68 @@ export class FieldSession {
   async tick(): Promise<void> {
     if (this.ended || this.ticking) return;
     this.ticking = true;
+    void this.refreshTraffic();
     try {
       await this.pollCall();
       await this.startCallIfDue();
     } finally {
       this.ticking = false;
     }
+  }
+
+  /**
+   * Fetches live traffic when it is missing, stale, or the rider has moved.
+   * Never throws: on failure the route keeps using distance estimates.
+   */
+  async refreshTraffic(): Promise<void> {
+    const state = this.trafficState;
+    if (!this.traffic || state.pending || this.ended) return;
+    const now = this.clock();
+    if (state.failedAt && now - state.failedAt < TRAFFIC_RETRY_MS) return;
+    const needStops = this.setup.stops.length > 1 && (!state.stops || now - state.stopsAt > TRAFFIC_STOPS_REFRESH_MS);
+    const needRider =
+      !state.rider || now - state.rider.at > TRAFFIC_RIDER_REFRESH_MS || haversineMeters(state.rider.from, this.rider) > TRAFFIC_RIDER_MOVE_METERS;
+    if (!needStops && !needRider) return;
+
+    state.pending = true;
+    const firstStops = !state.stops;
+    try {
+      const stops = this.setup.stops;
+      if (needStops) {
+        state.stops = await this.traffic.matrix(stops, stops);
+        state.stopsAt = now;
+      }
+      if (needRider) {
+        const from = { lat: this.rider.lat, lng: this.rider.lng };
+        const row = await this.traffic.matrix([{ id: RIDER_ID, ...from }], stops);
+        state.rider = { seconds: row.seconds[0], meters: row.meters[0], delaySeconds: row.delaySeconds[0], from, at: now };
+      }
+      if (state.lastError) this.record("traffic", `Live traffic from ${this.traffic.name} is back`);
+      state.lastError = null;
+      state.failedAt = 0;
+      if (firstStops && state.stops && !this.inFlight) this.replan("Live traffic");
+    } catch (error) {
+      const message = maskPhonesInText((error as Error).message);
+      if (message !== state.lastError) this.record("traffic", `Live traffic unavailable, using distance estimates: ${message}`);
+      state.lastError = message;
+      state.failedAt = now;
+    } finally {
+      state.pending = false;
+    }
+  }
+
+  /** Where arrival times come from right now, for the screens. */
+  trafficStatus(): { live: boolean; provider: string | null; updatedSecondsAgo: number | null; nextDelayMinutes: number | null } {
+    const state = this.trafficState;
+    const live = this.traffic !== null && state.rider !== null && state.lastError === null;
+    const next = this.order[0];
+    const index = next ? this.setup.stops.findIndex((stop) => stop.id === next) : -1;
+    return {
+      live,
+      provider: this.traffic?.name ?? null,
+      updatedSecondsAgo: state.rider ? Math.round((this.clock() - state.rider.at) / 1000) : null,
+      nextDelayMinutes: live && index >= 0 ? Math.round((state.rider?.delaySeconds[index] ?? 0) / 60) : null,
+    };
   }
 
   moveRider(lat: number, lng: number, accuracy: number | null = null): void {
@@ -394,8 +469,41 @@ export class FieldSession {
     }
   }
 
-  private travel() {
-    return estimatedTravel([{ id: RIDER_ID, lat: this.rider.lat, lng: this.rider.lng }, ...this.setup.stops], this.setup.speedKmh);
+  /**
+   * Driving times for planning: live traffic where it is available, distance
+   * estimates otherwise. Between refreshes, the rider's live times are scaled
+   * by how much closer or further the rider has moved.
+   */
+  private travel(): TravelTimes {
+    const { stops, speedKmh } = this.setup;
+    const points = [{ id: RIDER_ID, lat: this.rider.lat, lng: this.rider.lng }, ...stops];
+    const estimate = estimatedTravel(points, speedKmh);
+    const state = this.trafficState;
+    if (!this.traffic || state.lastError || (!state.stops && !state.rider)) return estimate;
+
+    const estimatedSeconds = (from: { lat: number; lng: number }, to: { lat: number; lng: number }) =>
+      (haversineMeters(from, to) * ROAD_FACTOR) / ((speedKmh * 1000) / 3600);
+    const cell = (i: number, j: number, table: "seconds" | "meters"): number => {
+      if (i === j) return 0;
+      const a = points[i];
+      const b = points[j];
+      if (i === 0 && j > 0 && state.rider) {
+        const before = estimatedSeconds(state.rider.from, b);
+        const ratio = before > 30 ? estimatedSeconds(a, b) / before : 1;
+        return state.rider[table][j - 1] * ratio;
+      }
+      if (i > 0 && j > 0 && state.stops) return state.stops[table][i - 1][j - 1];
+      return table === "seconds" ? estimate.minutes(a.id, b.id) * 60 : estimate.meters(a.id, b.id);
+    };
+    return new TravelTimes(
+      {
+        ids: points.map((point) => point.id),
+        durationsSeconds: points.map((_, i) => points.map((__, j) => cell(i, j, "seconds"))),
+        distancesMeters: points.map((_, i) => points.map((__, j) => cell(i, j, "meters"))),
+        shapes: {},
+      },
+      1,
+    );
   }
 
   private input(id: string): RouteStopInput {

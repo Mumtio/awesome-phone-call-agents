@@ -277,6 +277,28 @@
   color: #fff;
 }
 
+.traffic {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.traffic.live {
+  color: #3f6212;
+}
+
+.traffic.live::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #65a30d;
+  animation: pulse 1.6s infinite;
+}
+
 .tip {
   margin: 12px 2px 0;
   font-size: 13px;
