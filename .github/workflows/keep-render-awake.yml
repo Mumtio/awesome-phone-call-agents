@@ -1,0 +1,30 @@
+name: Keep RouteReady demo awake
+
+on:
+  schedule:
+    - cron: "*/20 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: keep-render-awake
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Ping every 5 minutes for ~25 minutes
+        env:
+          URL: https://awesome-phone-call-agents-xloz.onrender.com/
+          STOP_AFTER: "2026-10-14"
+        run: |
+          if [ "$(date -u +%F)" \> "$STOP_AFTER" ]; then
+            echo "Judging is over; skipping."
+            exit 0
+          fi
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 90 --retry 2 "$URL" || echo "000")
+            echo "$(date -u +%T) ping $i -> HTTP $code"
+            [ "$i" -lt 6 ] && sleep 290
+          done
